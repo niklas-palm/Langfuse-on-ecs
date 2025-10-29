@@ -400,24 +400,24 @@ list-ecr-images:
 
 # Generate secrets helper
 generate-secrets:
-	@echo "$(BLUE)Generating secrets for parameters.json...$(NC)"
+	@echo "$(BLUE)Generating shared secrets for parameters.json...$(NC)"
 	@echo ""
-	@echo "$(YELLOW)NEXTAUTH_SECRET:$(NC)"
+	@echo "$(YELLOW)LangfuseNextAuthSecret (for session validation):$(NC)"
 	@openssl rand -base64 32
 	@echo ""
-	@echo "$(YELLOW)WEB_SALT:$(NC)"
+	@echo "$(YELLOW)LangfuseSalt (shared by web + worker):$(NC)"
 	@openssl rand -base64 32
 	@echo ""
-	@echo "$(YELLOW)WEB_ENCRYPTION_KEY:$(NC)"
+	@echo "$(YELLOW)LangfuseEncryptionKey (shared by web + worker):$(NC)"
 	@openssl rand -hex 32
 	@echo ""
-	@echo "$(YELLOW)WORKER_SALT:$(NC)"
-	@openssl rand -base64 32
+	@echo "$(GREEN)✓ Generated 3 shared secrets$(NC)"
 	@echo ""
-	@echo "$(YELLOW)WORKER_ENCRYPTION_KEY:$(NC)"
-	@openssl rand -hex 32
-	@echo ""
-	@echo "$(GREEN)Copy these values to your parameters.json file$(NC)"
+	@echo "$(BLUE)IMPORTANT:$(NC) These secrets must be identical across all containers."
+	@echo "Copy these values to the following parameters in parameters.json:"
+	@echo "  - LangfuseNextAuthSecret"
+	@echo "  - LangfuseSalt"
+	@echo "  - LangfuseEncryptionKey"
 
 # All-in-one deployment
 deploy-all: build-and-push deploy
