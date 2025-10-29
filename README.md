@@ -69,12 +69,17 @@ make generate-secrets
 This outputs:
 
 ```
-NEXTAUTH_SECRET=xyz123...
-WEB_SALT=abc456...
-WEB_ENCRYPTION_KEY=def789...
-WORKER_SALT=ghi012...
-WORKER_ENCRYPTION_KEY=jkl345...
+LangfuseNextAuthSecret (for session validation):
+xyz123...
+
+LangfuseSalt (shared by web + worker):
+abc456...
+
+LangfuseEncryptionKey (shared by web + worker):
+def789...
 ```
+
+**Important:** These secrets are shared across web and worker containers. Use the same values for both to ensure authentication, API key validation, and data encryption work correctly.
 
 **Save these values** - you'll need them in the next step.
 
@@ -84,24 +89,16 @@ Edit `parameters.json` with your values:
 
 ```json
 {
-  "ParameterKey": "LangfuseWebNextAuthSecret",
+  "ParameterKey": "LangfuseNextAuthSecret",
   "ParameterValue": "YOUR_GENERATED_NEXTAUTH_SECRET"
 },
 {
-  "ParameterKey": "LangfuseWebSalt",
-  "ParameterValue": "YOUR_GENERATED_WEB_SALT"
+  "ParameterKey": "LangfuseSalt",
+  "ParameterValue": "YOUR_GENERATED_SALT"
 },
 {
-  "ParameterKey": "LangfuseWebEncryptionKey",
-  "ParameterValue": "YOUR_GENERATED_WEB_ENCRYPTION_KEY"
-},
-{
-  "ParameterKey": "LangfuseWorkerSalt",
-  "ParameterValue": "YOUR_GENERATED_WORKER_SALT"
-},
-{
-  "ParameterKey": "LangfuseWorkerEncryptionKey",
-  "ParameterValue": "YOUR_GENERATED_WORKER_ENCRYPTION_KEY"
+  "ParameterKey": "LangfuseEncryptionKey",
+  "ParameterValue": "YOUR_GENERATED_ENCRYPTION_KEY"
 },
 {
   "ParameterKey": "CertificateArn",

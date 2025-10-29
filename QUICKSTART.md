@@ -33,26 +33,20 @@ Edit `parameters.json` and replace these placeholder values with your generated 
 
 ```json
 {
-  "ParameterKey": "LangfuseWebNextAuthSecret",
+  "ParameterKey": "LangfuseNextAuthSecret",
   "ParameterValue": "YOUR_GENERATED_SECRET_HERE"
 },
 {
-  "ParameterKey": "LangfuseWebSalt",
+  "ParameterKey": "LangfuseSalt",
   "ParameterValue": "YOUR_GENERATED_SALT_HERE"
 },
 {
-  "ParameterKey": "LangfuseWebEncryptionKey",
-  "ParameterValue": "YOUR_GENERATED_KEY_HERE"
-},
-{
-  "ParameterKey": "LangfuseWorkerSalt",
-  "ParameterValue": "YOUR_GENERATED_SALT_HERE"
-},
-{
-  "ParameterKey": "LangfuseWorkerEncryptionKey",
+  "ParameterKey": "LangfuseEncryptionKey",
   "ParameterValue": "YOUR_GENERATED_KEY_HERE"
 }
 ```
+
+**Note:** These secrets are shared across web and worker containers for authentication, API key hashing, and data encryption.
 
 ### Step 3: Build and Push Docker Images
 
