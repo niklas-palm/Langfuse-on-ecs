@@ -247,6 +247,8 @@ make deploy
 
 ### Update Images
 
+This pulls the latest version of Langfuse and Clickhouse. Update the
+
 ```bash
 make build-and-push
 make deploy
