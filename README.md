@@ -19,6 +19,7 @@ Deploy Langfuse V3 on AWS using CloudFormation/SAM with automated Docker image b
 Create these resources in AWS Console:
 
 1. **ACM Certificate** (AWS Certificate Manager)
+
    - Region: Same as deployment region
    - Domain: Your custom domain (e.g., `langfuse.example.com`)
    - Validation: DNS or Email
@@ -66,6 +67,7 @@ make generate-secrets
 ```
 
 This outputs:
+
 ```
 NEXTAUTH_SECRET=xyz123...
 WEB_SALT=abc456...
@@ -126,6 +128,7 @@ make build-and-push
 ```
 
 This will:
+
 - Create ECR repositories
 - Pull official Langfuse images
 - Build for linux/amd64 (Mac users: automatically handled)
@@ -163,6 +166,7 @@ Access at `https://langfuse.example.com` and create your admin account.
 Clickhouse is configured for single-instance deployment with EFS persistence. Key configuration details:
 
 **Deployment Strategy:**
+
 - Deployed to a single subnet (AZ) to prevent file locking conflicts
 - AZ Rebalancing disabled to ensure predictable deployment behavior
 - Sequential deployment (stops old task before starting new)
@@ -171,15 +175,16 @@ Clickhouse is configured for single-instance deployment with EFS persistence. Ke
 Clickhouse requires exclusive access to its data directory on EFS. Running multiple instances simultaneously causes `exit code 76` (CANNOT_OPEN_FILE) errors due to file locking. The configuration ensures:
 
 ```yaml
-AvailabilityZoneRebalancing: DISABLED  # Prevents multi-AZ task launches
-MinimumHealthyPercent: 0               # Allows full stop of old task
-MaximumPercent: 100                    # Prevents overlapping deployments
-DeploymentCircuitBreaker:              # Auto-rollback on failure
+AvailabilityZoneRebalancing: DISABLED # Prevents multi-AZ task launches
+MinimumHealthyPercent: 0 # Allows full stop of old task
+MaximumPercent: 100 # Prevents overlapping deployments
+DeploymentCircuitBreaker: # Auto-rollback on failure
   Enable: true
   Rollback: true
 ```
 
 **Trade-offs:**
+
 - Single AZ deployment (no AZ redundancy for the task)
 - EFS data remains replicated across AZs for durability
 - Downtime during deployments (~2 minutes during health check)
@@ -210,11 +215,12 @@ Set to `true` to disable public signups (default), or `false` to allow anyone to
 ```json
 {
   "ParameterKey": "LangfuseWebAuthDisableSignup",
-  "ParameterValue": "true"  // true = disabled, false = enabled
+  "ParameterValue": "true" // true = disabled, false = enabled
 }
 ```
 
 After changing, redeploy:
+
 ```bash
 make deploy
 ```
@@ -222,12 +228,14 @@ make deploy
 ## Makefile Commands
 
 ### Deployment
+
 - `make build-and-push` - Build and push Docker images
 - `make deploy` - Deploy infrastructure
 - `make deploy-all` - Build + push + deploy
 - `make validate` - Validate template
 
 ### Operations
+
 - `make status` - Show stack status
 - `make get-alb-url` - Get ALB URL
 - `make open-langfuse` - Open in browser
@@ -266,6 +274,7 @@ make ecr-login
 ### Deployment Fails
 
 Check CloudFormation events:
+
 ```bash
 aws cloudformation describe-stack-events \
   --stack-name langfuse-v3 \
@@ -281,6 +290,7 @@ aws cloudformation describe-stack-events \
 **Solution:** The template is pre-configured to prevent this. If you encounter this:
 
 1. Check if multiple deployments are running:
+
 ```bash
 aws ecs describe-services \
   --cluster langfuse \
@@ -289,6 +299,7 @@ aws ecs describe-services \
 ```
 
 2. If stuck in UPDATE_ROLLBACK_FAILED:
+
 ```bash
 aws cloudformation continue-update-rollback \
   --stack-name langfuse-v3 \
@@ -296,6 +307,7 @@ aws cloudformation continue-update-rollback \
 ```
 
 3. Redeploy after rollback completes:
+
 ```bash
 make deploy
 ```
@@ -303,6 +315,7 @@ make deploy
 ### Application Not Accessible
 
 Check ECS service:
+
 ```bash
 aws ecs describe-services \
   --cluster langfuse \
@@ -310,6 +323,7 @@ aws ecs describe-services \
 ```
 
 Check logs:
+
 ```bash
 make tail-web-logs
 make tail-worker-logs
@@ -319,6 +333,7 @@ make tail-clickhouse-logs
 ### Database Connection Issues
 
 The Aurora cluster takes time to provision. Check:
+
 ```bash
 aws rds describe-db-clusters \
   --db-cluster-identifier langfuse-db \
@@ -329,35 +344,33 @@ aws rds describe-db-clusters \
 
 Approximate monthly costs (us-east-1, on-demand):
 
-| Service | Config | Monthly |
-|---------|--------|---------|
-| Aurora PostgreSQL | r6g.large x2 | ~$280 |
-| ElastiCache | t3.small | ~$25 |
-| ECS Fargate | 3 tasks | ~$90 |
-| NAT Gateway | 3 AZs | ~$100 |
-| ALB | Standard | ~$20 |
-| EFS | ~10 GB | ~$3 |
-| **Total** | | **~$518/mo** |
-
-**Optimization tips**:
-- Use Aurora Serverless v2 for variable workloads
-- Reduce to 1 NAT Gateway for non-production
-- Use Fargate Spot pricing
+| Service           | Config       | Monthly      |
+| ----------------- | ------------ | ------------ |
+| Aurora PostgreSQL | r6g.large x2 | ~$280        |
+| ElastiCache       | t3.small     | ~$25         |
+| ECS Fargate       | 3 tasks      | ~$90         |
+| NAT Gateway       | 3 AZs        | ~$100        |
+| ALB               | Standard     | ~$20         |
+| EFS               | ~10 GB       | ~$3          |
+| **Total**         |              | **~$518/mo** |
 
 ## Security
 
 ### Encrypted Traffic
+
 - All traffic uses HTTPS
 - HTTP automatically redirects to HTTPS
 - TLS certificate from ACM
 
 ### Encrypted Data
+
 - Aurora: Encrypted at rest
 - EFS: Encrypted at rest and in transit
 - S3: Block public access enabled
 - Secrets Manager: Database credentials
 
 ### Network
+
 - ECS tasks in private subnets
 - Security groups with least privilege
 - VPC endpoints for S3
@@ -365,25 +378,6 @@ Approximate monthly costs (us-east-1, on-demand):
 ## Backup
 
 ### Automated
+
 - Aurora: 3-day retention
 - ElastiCache: 3-day snapshots
-
-### Manual
-
-```bash
-# Aurora snapshot
-aws rds create-db-cluster-snapshot \
-  --db-cluster-identifier langfuse-db \
-  --db-cluster-snapshot-identifier langfuse-backup-$(date +%Y%m%d)
-
-# ElastiCache snapshot
-aws elasticache create-snapshot \
-  --replication-group-id $(aws elasticache describe-replication-groups --query 'ReplicationGroups[0].ReplicationGroupId' --output text) \
-  --snapshot-name langfuse-cache-backup-$(date +%Y%m%d)
-```
-
-## Support
-
-- Langfuse Docs: https://langfuse.com/docs
-- AWS SAM Docs: https://docs.aws.amazon.com/serverless-application-model/
-- Issues: https://github.com/langfuse/langfuse/issues
