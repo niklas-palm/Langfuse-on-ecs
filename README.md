@@ -247,12 +247,14 @@ make deploy
 
 ### Update Images
 
-This pulls the latest version of Langfuse and Clickhouse. Update the
+To pull the latest versions from Docker Hub and deploy:
 
 ```bash
-make build-and-push
+make rebuild  # Cleans .image-tag and rebuilds with fresh timestamp
 make deploy
 ```
+
+**Note:** The build process uses `.image-tag` to track the current image version. If you run `make build-and-push` without cleaning first, it will reuse the existing tag. Use `make rebuild` to ensure you're pulling the latest upstream images with a new timestamp.
 
 ### Update Configuration
 
