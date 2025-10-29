@@ -1,0 +1,110 @@
+[
+  {
+    "ParameterKey": "VpcCidr",
+    "ParameterValue": "10.111.0.0/16"
+  },
+  {
+    "ParameterKey": "LangfuseWebImageUri",
+    "ParameterValue": "WILL_BE_AUTO_UPDATED_BY_MAKE_BUILD_AND_PUSH"
+  },
+  {
+    "ParameterKey": "LangfuseWorkerImageUri",
+    "ParameterValue": "WILL_BE_AUTO_UPDATED_BY_MAKE_BUILD_AND_PUSH"
+  },
+  {
+    "ParameterKey": "ClickhouseImageUri",
+    "ParameterValue": "WILL_BE_AUTO_UPDATED_BY_MAKE_BUILD_AND_PUSH"
+  },
+  {
+    "ParameterKey": "EcsClusterName",
+    "ParameterValue": "langfuse"
+  },
+  {
+    "ParameterKey": "LangfuseWorkerDesiredCount",
+    "ParameterValue": "1"
+  },
+  {
+    "ParameterKey": "DbClusterName",
+    "ParameterValue": "langfuse-db"
+  },
+  {
+    "ParameterKey": "DbInstanceClass",
+    "ParameterValue": "db.r6g.large"
+  },
+  {
+    "ParameterKey": "PrivateDnsNamespace",
+    "ParameterValue": "langfuse.local"
+  },
+  {
+    "ParameterKey": "LangfuseWebNodeEnv",
+    "ParameterValue": "production"
+  },
+  {
+    "ParameterKey": "LangfuseWebNextAuthSecret",
+    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
+  },
+  {
+    "ParameterKey": "LangfuseWebSalt",
+    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
+  },
+  {
+    "ParameterKey": "LangfuseWebEncryptionKey",
+    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
+  },
+  {
+    "ParameterKey": "LangfuseWebHostname",
+    "ParameterValue": "0.0.0.0"
+  },
+  {
+    "ParameterKey": "LangfuseWebTelemetryEnabled",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "LangfuseWebExperimentalFeatures",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "LangfuseWebReadFromClickhouseOnly",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "LangfuseWebReturnFromClickhouse",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "LangfuseWebAuthDisableSignup",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "LangfuseWorkerNodeEnv",
+    "ParameterValue": "production"
+  },
+  {
+    "ParameterKey": "LangfuseWorkerSalt",
+    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
+  },
+  {
+    "ParameterKey": "LangfuseWorkerEncryptionKey",
+    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
+  },
+  {
+    "ParameterKey": "LangfuseWorkerTelemetryEnabled",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "LangfuseWorkerExperimentalFeatures",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "CertificateArn",
+    "ParameterValue": "arn:aws:acm:eu-west-1:123456789012:certificate/REPLACE_WITH_YOUR_ACM_CERTIFICATE_ARN"
+  },
+  {
+    "ParameterKey": "DomainName",
+    "ParameterValue": "langfuse.example.com"
+  },
+  {
+    "ParameterKey": "HostedZoneId",
+    "ParameterValue": "REPLACE_WITH_YOUR_ROUTE53_HOSTED_ZONE_ID"
+  }
+]
