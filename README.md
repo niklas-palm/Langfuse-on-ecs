@@ -203,11 +203,20 @@ Edit in `parameters.json`:
 
 ### Feature Flags
 
+**Disable Public Signups:**
+
+Set to `true` to disable public signups (default), or `false` to allow anyone to create accounts:
+
 ```json
 {
   "ParameterKey": "LangfuseWebAuthDisableSignup",
-  "ParameterValue": "true"  // Disable public signups
+  "ParameterValue": "true"  // true = disabled, false = enabled
 }
+```
+
+After changing, redeploy:
+```bash
+make deploy
 ```
 
 ## Makefile Commands
