@@ -1,0 +1,1376 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Langfuse V3 on Amazon ECS with Fargate - Complete Infrastructure
+
+Parameters:
+  # VPC Configuration
+  VpcCidr:
+    Type: String
+    Default: "10.111.0.0/16"
+    Description: CIDR block for VPC
+
+  # ECR Configuration
+  LangfuseWebImageUri:
+    Type: String
+    Description: ECR URI for langfuse-web image (e.g., 123456.dkr.ecr.region.amazonaws.com/langfuse-web:latest)
+
+  LangfuseWorkerImageUri:
+    Type: String
+    Description: ECR URI for langfuse-worker image
+
+  ClickhouseImageUri:
+    Type: String
+    Description: ECR URI for clickhouse image
+
+  # ECS Configuration
+  EcsClusterName:
+    Type: String
+    Default: "langfuse"
+    Description: Name of the ECS cluster
+
+  LangfuseWorkerDesiredCount:
+    Type: Number
+    Default: 1
+    Description: Desired count for worker tasks
+
+  # Database Configuration
+  DbClusterName:
+    Type: String
+    Default: "langfuse-db"
+    Description: Aurora PostgreSQL cluster name
+
+  DbInstanceClass:
+    Type: String
+    Default: "db.r6g.large"
+    Description: Aurora instance class
+
+  # Service Discovery
+  PrivateDnsNamespace:
+    Type: String
+    Default: "langfuse.local"
+    Description: Private DNS namespace for service discovery
+
+  # Langfuse Web Environment Variables
+  LangfuseWebNodeEnv:
+    Type: String
+    Default: "production"
+
+  LangfuseWebNextAuthSecret:
+    Type: String
+    NoEcho: true
+    Description: "NextAuth secret (generate with: openssl rand -base64 32)"
+
+  LangfuseWebSalt:
+    Type: String
+    NoEcho: true
+    Description: "Salt for encryption (generate with: openssl rand -base64 32)"
+
+  LangfuseWebEncryptionKey:
+    Type: String
+    NoEcho: true
+    Description: "Encryption key (generate with: openssl rand -hex 32)"
+
+  LangfuseWebHostname:
+    Type: String
+    Default: "0.0.0.0"
+
+  LangfuseWebTelemetryEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+
+  LangfuseWebExperimentalFeatures:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+
+  LangfuseWebReadFromClickhouseOnly:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+
+  LangfuseWebReturnFromClickhouse:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+
+  LangfuseWebAuthDisableSignup:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+
+  # Langfuse Worker Environment Variables
+  LangfuseWorkerNodeEnv:
+    Type: String
+    Default: "production"
+
+  LangfuseWorkerSalt:
+    Type: String
+    NoEcho: true
+    Description: "Worker salt (generate with: openssl rand -base64 32)"
+
+  LangfuseWorkerEncryptionKey:
+    Type: String
+    NoEcho: true
+    Description: "Worker encryption key (generate with: openssl rand -hex 32)"
+
+  LangfuseWorkerTelemetryEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+
+  LangfuseWorkerExperimentalFeatures:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+
+  # SSL/TLS Configuration
+  CertificateArn:
+    Type: String
+    Description: "ARN of ACM certificate for HTTPS"
+
+  DomainName:
+    Type: String
+    Description: "Domain name for the application (e.g., langfuse.example.com)"
+
+  HostedZoneId:
+    Type: String
+    Description: "Route53 Hosted Zone ID for the domain"
+
+Resources:
+  # ============================================
+  # VPC and Networking
+  # ============================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: langfuse-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: langfuse-igw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnets
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 6, 12]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: langfuse-public-subnet-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 6, 12]]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: langfuse-public-subnet-2
+
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 6, 12]]
+      AvailabilityZone: !Select [2, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: langfuse-public-subnet-3
+
+  # Private Subnets
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [3, !Cidr [!Ref VpcCidr, 6, 12]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: langfuse-private-subnet-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [4, !Cidr [!Ref VpcCidr, 6, 12]]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: langfuse-private-subnet-2
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [5, !Cidr [!Ref VpcCidr, 6, 12]]
+      AvailabilityZone: !Select [2, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: langfuse-private-subnet-3
+
+  # NAT Gateways
+  NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+  NatGateway2EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+  NatGateway3EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway2EIP.AllocationId
+      SubnetId: !Ref PublicSubnet2
+
+  NatGateway3:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway3EIP.AllocationId
+      SubnetId: !Ref PublicSubnet3
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: langfuse-public-rt
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PublicSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet3
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: langfuse-private-rt-1
+
+  DefaultPrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: langfuse-private-rt-2
+
+  DefaultPrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet2
+
+  PrivateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: langfuse-private-rt-3
+
+  DefaultPrivateRoute3:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway3
+
+  PrivateSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      SubnetId: !Ref PrivateSubnet3
+
+  # S3 Gateway Endpoint
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      RouteTableIds:
+        - !Ref PrivateRouteTable1
+        - !Ref PrivateRouteTable2
+        - !Ref PrivateRouteTable3
+
+  # ============================================
+  # Application Load Balancer
+  # ============================================
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound for Langfuse Web
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: langfuse-web-alb-sg
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+        - !Ref PublicSubnet3
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 3000
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: '443'
+            StatusCode: HTTP_301
+
+  ALBListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  # Route53 DNS Record
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        HostedZoneId: !GetAtt ApplicationLoadBalancer.CanonicalHostedZoneID
+        DNSName: !GetAtt ApplicationLoadBalancer.DNSName
+
+  # ============================================
+  # Aurora PostgreSQL
+  # ============================================
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: PostgreSQL database credentials
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "postgres"}'
+        GenerateStringKey: password
+        PasswordLength: 16
+        ExcludePunctuation: true
+
+  PostgreSQLClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for PostgreSQL client
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: postgresql-client-sg
+
+  PostgreSQLServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for PostgreSQL
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref PostgreSQLClientSecurityGroup
+          Description: postgresql-client-sg
+      Tags:
+        - Key: Name
+          Value: postgresql-server-sg
+
+  PostgreSQLServerSecurityGroupSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PostgreSQLServerSecurityGroup
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref PostgreSQLServerSecurityGroup
+      Description: postgresql-server-sg
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for PostgreSQL
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+
+  DBClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: Custom cluster parameter group for aurora-postgresql15
+      Family: aurora-postgresql15
+      Parameters:
+        log_min_duration_statement: '15000'
+        default_transaction_isolation: 'read committed'
+        client_encoding: 'UTF8'
+
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: Custom parameter group for aurora-postgresql15
+      Family: aurora-postgresql15
+      Parameters:
+        log_min_duration_statement: '15000'
+        default_transaction_isolation: 'read committed'
+
+  AuroraDBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: '15.4'
+      Port: 5432
+      DatabaseName: postgres
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
+      DBClusterIdentifier: !Ref DbClusterName
+      DBClusterParameterGroupName: !Ref DBClusterParameterGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref PostgreSQLServerSecurityGroup
+      BackupRetentionPeriod: 3
+      PreferredBackupWindow: '03:00-04:00'
+      StorageEncrypted: true
+
+  AuroraDBInstanceWriter:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub '${DbClusterName}-writer'
+      DBInstanceClass: !Ref DbInstanceClass
+      Engine: aurora-postgresql
+      DBClusterIdentifier: !Ref AuroraDBCluster
+      DBParameterGroupName: !Ref DBParameterGroup
+      PubliclyAccessible: false
+      AutoMinorVersionUpgrade: false
+
+  AuroraDBInstanceReader:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub '${DbClusterName}-reader'
+      DBInstanceClass: !Ref DbInstanceClass
+      Engine: aurora-postgresql
+      DBClusterIdentifier: !Ref AuroraDBCluster
+      DBParameterGroupName: !Ref DBParameterGroup
+      PubliclyAccessible: false
+      AutoMinorVersionUpgrade: false
+
+  SecretRDSInstanceAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref DBSecret
+      TargetId: !Ref AuroraDBCluster
+      TargetType: AWS::RDS::DBCluster
+
+  # ============================================
+  # ElastiCache (Valkey)
+  # ============================================
+  RedisClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for redis client
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: redis-client-sg
+
+  RedisServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for redis server
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref RedisClientSecurityGroup
+          Description: redis-client-sg
+      Tags:
+        - Key: Name
+          Value: redis-server-sg
+
+  RedisServerSecurityGroupSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RedisServerSecurityGroup
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref RedisServerSecurityGroup
+      Description: redis-server-sg
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Subnet group for redis
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+
+  RedisReplicationGroup:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      ReplicationGroupDescription: Langfuse Cache/Queue Replication Group
+      CacheNodeType: cache.t3.small
+      Engine: valkey
+      EngineVersion: '7.2'
+      NumCacheClusters: 1
+      AutomaticFailoverEnabled: false
+      CacheParameterGroupName: default.valkey7
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      SecurityGroupIds:
+        - !Ref RedisServerSecurityGroup
+      SnapshotRetentionLimit: 3
+      SnapshotWindow: '19:00-21:00'
+      PreferredMaintenanceWindow: 'mon:21:00-mon:22:30'
+      AutoMinorVersionUpgrade: false
+      TransitEncryptionEnabled: true
+      TransitEncryptionMode: preferred
+      Tags:
+        - Key: Name
+          Value: langfuse-cache
+
+  # ============================================
+  # S3 Buckets
+  # ============================================
+  BlobBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'langfuse-blob-${AWS::Region}-${AWS::AccountId}-${AWS::StackName}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  EventBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'langfuse-event-${AWS::Region}-${AWS::AccountId}-${AWS::StackName}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ============================================
+  # EFS for Clickhouse
+  # ============================================
+  EFSInboundSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group that allows inbound NFS traffic for ECS tasks
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: efs-inbound-sg
+
+  EFSOutboundSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group that allows outbound NFS traffic for ECS tasks
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref EFSInboundSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          DestinationSecurityGroupId: !Ref EFSInboundSecurityGroup
+      Tags:
+        - Key: Name
+          Value: efs-outbound-sg
+
+  ClickhouseFileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose
+      Encrypted: true
+      FileSystemTags:
+        - Key: Name
+          Value: clickhouse-data
+
+  EFSMountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref ClickhouseFileSystem
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroups:
+        - !Ref EFSOutboundSecurityGroup
+
+  EFSMountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref ClickhouseFileSystem
+      SubnetId: !Ref PrivateSubnet2
+      SecurityGroups:
+        - !Ref EFSOutboundSecurityGroup
+
+  EFSMountTarget3:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref ClickhouseFileSystem
+      SubnetId: !Ref PrivateSubnet3
+      SecurityGroups:
+        - !Ref EFSOutboundSecurityGroup
+
+  # ============================================
+  # Service Discovery
+  # ============================================
+  ServiceDiscoveryNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: !Ref PrivateDnsNamespace
+      Description: Langfuse Service Discovery namespace
+      Vpc: !Ref VPC
+
+  ClickhouseServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: clickhouse
+      Description: Clickhouse service discovery
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        NamespaceId: !Ref ServiceDiscoveryNamespace
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ============================================
+  # ECS Cluster
+  # ============================================
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref EcsClusterName
+      Tags:
+        - Key: Name
+          Value: langfuse
+
+  # ============================================
+  # Clickhouse ECS Task and Service
+  # ============================================
+  ClickhouseSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Clickhouse database credentials
+      GenerateSecretString:
+        SecretStringTemplate: '{"database": "default", "user": "clickhouse"}'
+        GenerateStringKey: password
+        PasswordLength: 8
+        ExcludePunctuation: true
+
+  ClickhouseTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        - PolicyName: ClickhouseTaskExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ecr:GetAuthorizationToken'
+                  - 'ecr:BatchCheckLayerAvailability'
+                  - 'ecr:GetDownloadUrlForLayer'
+                  - 'ecr:BatchGetImage'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+
+  ClickhouseTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        - PolicyName: ClickhouseTaskPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:*'
+                  - 's3:*'
+                  - 'elasticfilesystem:ClientMount'
+                  - 'elasticfilesystem:ClientWrite'
+                  - 'elasticfilesystem:ClientRootAccess'
+                Resource: '*'
+
+  ClickhouseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/clickhouse
+      RetentionInDays: 7
+
+  ClickhouseTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: clickhouse
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '1024'
+      Memory: '8192'
+      ExecutionRoleArn: !GetAtt ClickhouseTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ClickhouseTaskRole.Arn
+      Volumes:
+        - Name: clickhouse_data
+          EFSVolumeConfiguration:
+            FilesystemId: !Ref ClickhouseFileSystem
+            RootDirectory: /
+            TransitEncryption: ENABLED
+      ContainerDefinitions:
+        - Name: clickhouse
+          Image: !Ref ClickhouseImageUri
+          Cpu: 1024
+          Memory: 8192
+          Essential: true
+          Environment:
+            - Name: CLICKHOUSE_DB
+              Value: !Sub '{{resolve:secretsmanager:${ClickhouseSecret}:SecretString:database}}'
+            - Name: CLICKHOUSE_USER
+              Value: !Sub '{{resolve:secretsmanager:${ClickhouseSecret}:SecretString:user}}'
+            - Name: CLICKHOUSE_PASSWORD
+              Value: !Sub '{{resolve:secretsmanager:${ClickhouseSecret}:SecretString:password}}'
+          PortMappings:
+            - ContainerPort: 8123
+              Protocol: tcp
+            - ContainerPort: 9000
+              Protocol: tcp
+          MountPoints:
+            - SourceVolume: clickhouse_data
+              ContainerPath: /var/lib/clickhouse
+              ReadOnly: false
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - 'wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1'
+            Interval: 30
+            Timeout: 5
+            Retries: 10
+            StartPeriod: 120
+          Ulimits:
+            - Name: nofile
+              SoftLimit: 65535
+              HardLimit: 65535
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ClickhouseLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: clickhouse
+
+  ClickhouseClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for clickhouse client
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: clickhouse-client-sg
+
+  ClickhouseServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound from VPC for ECS Fargate Service
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8123
+          ToPort: 8123
+          SourceSecurityGroupId: !Ref ClickhouseClientSecurityGroup
+          Description: clickhouse http interface
+        - IpProtocol: tcp
+          FromPort: 9000
+          ToPort: 9000
+          SourceSecurityGroupId: !Ref ClickhouseClientSecurityGroup
+          Description: clickhouse native interface
+      Tags:
+        - Key: Name
+          Value: clickhouse-server-sg
+
+  ClickhouseService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - EFSMountTarget1
+      - EFSMountTarget2
+      - EFSMountTarget3
+    Properties:
+      ServiceName: clickhouse
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref ClickhouseTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      AvailabilityZoneRebalancing: DISABLED
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref PrivateSubnet1
+          SecurityGroups:
+            - !Ref ClickhouseServerSecurityGroup
+            - !Ref EFSInboundSecurityGroup
+      ServiceRegistries:
+        - RegistryArn: !GetAtt ClickhouseServiceDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: langfuse_clickhouse
+
+  # ============================================
+  # Langfuse Worker ECS Task and Service
+  # ============================================
+  LangfuseWorkerTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        - PolicyName: LangfuseWorkerTaskPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:*'
+                  - 's3:*'
+                  - 'ecr:GetAuthorizationToken'
+                  - 'ecr:BatchCheckLayerAvailability'
+                  - 'ecr:GetDownloadUrlForLayer'
+                  - 'ecr:BatchGetImage'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'bedrock:InvokeModel'
+                  - 'bedrock:InvokeModelWithResponseStream'
+                  - 'bedrock:InvokeModelWithBidirectionalStream'
+                  - 'bedrock:Converse'
+                  - 'bedrock:ConverseStream'
+                  - 'bedrock:StartAsyncInvoke'
+                  - 'bedrock:GetAsyncInvoke'
+                  - 'bedrock:ListAsyncInvokes'
+                  - 'bedrock:ApplyGuardrail'
+                  - 'bedrock:CountTokens'
+                Resource: '*'
+
+  LangfuseWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/langfuse-worker
+      RetentionInDays: 7
+
+  LangfuseWorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: langfuse-worker
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '2048'
+      Memory: '4096'
+      ExecutionRoleArn: !GetAtt LangfuseWorkerTaskRole.Arn
+      TaskRoleArn: !GetAtt LangfuseWorkerTaskRole.Arn
+      ContainerDefinitions:
+        - Name: worker
+          Image: !Ref LangfuseWorkerImageUri
+          Essential: true
+          Environment:
+            - Name: NODE_ENV
+              Value: !Ref LangfuseWorkerNodeEnv
+            - Name: SALT
+              Value: !Ref LangfuseWorkerSalt
+            - Name: ENCRYPTION_KEY
+              Value: !Ref LangfuseWorkerEncryptionKey
+            - Name: TELEMETRY_ENABLED
+              Value: !Ref LangfuseWorkerTelemetryEnabled
+            - Name: LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES
+              Value: !Ref LangfuseWorkerExperimentalFeatures
+            - Name: DATABASE_URL
+              Value: !Sub
+                - 'postgresql://${Username}:${Password}@${Host}:${Port}/postgres'
+                - Username: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:username}}'
+                  Password: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
+                  Host: !GetAtt AuroraDBCluster.Endpoint.Address
+                  Port: !GetAtt AuroraDBCluster.Endpoint.Port
+            - Name: CLICKHOUSE_MIGRATION_URL
+              Value: !Sub 'clickhouse://clickhouse.${PrivateDnsNamespace}:9000'
+            - Name: CLICKHOUSE_URL
+              Value: !Sub 'http://clickhouse.${PrivateDnsNamespace}:8123'
+            - Name: CLICKHOUSE_DB
+              Value: !Sub '{{resolve:secretsmanager:${ClickhouseSecret}:SecretString:database}}'
+            - Name: CLICKHOUSE_USER
+              Value: !Sub '{{resolve:secretsmanager:${ClickhouseSecret}:SecretString:user}}'
+            - Name: CLICKHOUSE_PASSWORD
+              Value: !Sub '{{resolve:secretsmanager:${ClickhouseSecret}:SecretString:password}}'
+            - Name: CLICKHOUSE_CLUSTER_ENABLED
+              Value: 'false'
+            - Name: REDIS_CONNECTION_STRING
+              Value: !Sub 'redis://${RedisReplicationGroup.PrimaryEndPoint.Address}:${RedisReplicationGroup.PrimaryEndPoint.Port}'
+            - Name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              Value: !Ref EventBucket
+            - Name: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
+              Value: 'events/'
+            - Name: LANGFUSE_S3_EVENT_UPLOAD_REGION
+              Value: !Ref AWS::Region
+            - Name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
+              Value: !Ref BlobBucket
+            - Name: LANGFUSE_S3_MEDIA_UPLOAD_ENABLED
+              Value: 'true'
+            - Name: LANGFUSE_S3_BATCH_EXPORT_ENABLED
+              Value: 'true'
+            - Name: LANGFUSE_S3_BATCH_EXPORT_BUCKET
+              Value: !Ref EventBucket
+            - Name: LANGFUSE_S3_BATCH_EXPORT_PREFIX
+              Value: 'exports/'
+            - Name: LANGFUSE_S3_BATCH_EXPORT_REGION
+              Value: !Ref AWS::Region
+          PortMappings:
+            - ContainerPort: 3030
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LangfuseWorkerLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: langfuse-worker
+
+  LangfuseWorkerServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound from VPC for ECS Fargate Service
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+          Description: langfuse-worker
+      Tags:
+        - Key: Name
+          Value: langfuse-worker-sg
+
+  LangfuseWorkerService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ClickhouseService
+      - AuroraDBInstanceWriter
+      - RedisReplicationGroup
+    Properties:
+      ServiceName: langfuse_worker
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref LangfuseWorkerTaskDefinition
+      DesiredCount: !Ref LangfuseWorkerDesiredCount
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+            - !Ref PrivateSubnet3
+          SecurityGroups:
+            - !Ref LangfuseWorkerServiceSecurityGroup
+            - !Ref RedisClientSecurityGroup
+            - !Ref PostgreSQLClientSecurityGroup
+            - !Ref ClickhouseClientSecurityGroup
+      Tags:
+        - Key: Name
+          Value: langfuse_worker
+
+  # ============================================
+  # Langfuse Web ECS Task and Service
+  # ============================================
+  LangfuseWebTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        - PolicyName: LangfuseWebTaskPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:*'
+                  - 's3:*'
+                  - 'ecr:GetAuthorizationToken'
+                  - 'ecr:BatchCheckLayerAvailability'
+                  - 'ecr:GetDownloadUrlForLayer'
+                  - 'ecr:BatchGetImage'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'bedrock:InvokeModel'
+                  - 'bedrock:InvokeModelWithResponseStream'
+                  - 'bedrock:InvokeModelWithBidirectionalStream'
+                  - 'bedrock:Converse'
+                  - 'bedrock:ConverseStream'
+                  - 'bedrock:StartAsyncInvoke'
+                  - 'bedrock:GetAsyncInvoke'
+                  - 'bedrock:ListAsyncInvokes'
+                  - 'bedrock:ApplyGuardrail'
+                  - 'bedrock:CountTokens'
+                Resource: '*'
+
+  LangfuseWebLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/langfuse-web
+      RetentionInDays: 7
+
+  LangfuseWebTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: langfuse-web
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '2048'
+      Memory: '4096'
+      ExecutionRoleArn: !GetAtt LangfuseWebTaskRole.Arn
+      TaskRoleArn: !GetAtt LangfuseWebTaskRole.Arn
+      ContainerDefinitions:
+        - Name: langfuse_web
+          Image: !Ref LangfuseWebImageUri
+          Essential: true
+          Environment:
+            - Name: NODE_ENV
+              Value: !Ref LangfuseWebNodeEnv
+            - Name: NEXTAUTH_SECRET
+              Value: !Ref LangfuseWebNextAuthSecret
+            - Name: SALT
+              Value: !Ref LangfuseWebSalt
+            - Name: ENCRYPTION_KEY
+              Value: !Ref LangfuseWebEncryptionKey
+            - Name: HOSTNAME
+              Value: !Ref LangfuseWebHostname
+            - Name: LANGFUSE_S3_MEDIA_DOWNLOAD_URL_EXPIRY_SECONDS
+              Value: '604800'
+            - Name: TELEMETRY_ENABLED
+              Value: !Ref LangfuseWebTelemetryEnabled
+            - Name: LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES
+              Value: !Ref LangfuseWebExperimentalFeatures
+            - Name: LANGFUSE_SDK_CI_SYNC_PROCESSING_ENABLED
+              Value: 'false'
+            - Name: LANGFUSE_READ_FROM_POSTGRES_ONLY
+              Value: 'false'
+            - Name: LANGFUSE_READ_FROM_CLICKHOUSE_ONLY
+              Value: !Ref LangfuseWebReadFromClickhouseOnly
+            - Name: LANGFUSE_RETURN_FROM_CLICKHOUSE
+              Value: !Ref LangfuseWebReturnFromClickhouse
+            - Name: AUTH_DISABLE_SIGNUP
+              Value: !Ref LangfuseWebAuthDisableSignup
+            - Name: DATABASE_URL
+              Value: !Sub
+                - 'postgresql://${Username}:${Password}@${Host}:${Port}/postgres'
+                - Username: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:username}}'
+                  Password: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
+                  Host: !GetAtt AuroraDBCluster.Endpoint.Address
+                  Port: !GetAtt AuroraDBCluster.Endpoint.Port
+            - Name: CLICKHOUSE_MIGRATION_URL
+              Value: !Sub 'clickhouse://clickhouse.${PrivateDnsNamespace}:9000'
+            - Name: CLICKHOUSE_URL
+              Value: !Sub 'http://clickhouse.${PrivateDnsNamespace}:8123'
+            - Name: CLICKHOUSE_DB
+              Value: !Sub '{{resolve:secretsmanager:${ClickhouseSecret}:SecretString:database}}'
+            - Name: CLICKHOUSE_USER
+              Value: !Sub '{{resolve:secretsmanager:${ClickhouseSecret}:SecretString:user}}'
+            - Name: CLICKHOUSE_PASSWORD
+              Value: !Sub '{{resolve:secretsmanager:${ClickhouseSecret}:SecretString:password}}'
+            - Name: CLICKHOUSE_CLUSTER_ENABLED
+              Value: 'false'
+            - Name: REDIS_CONNECTION_STRING
+              Value: !Sub 'redis://${RedisReplicationGroup.PrimaryEndPoint.Address}:${RedisReplicationGroup.PrimaryEndPoint.Port}'
+            - Name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              Value: !Ref EventBucket
+            - Name: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
+              Value: 'events/'
+            - Name: LANGFUSE_S3_EVENT_UPLOAD_REGION
+              Value: !Ref AWS::Region
+            - Name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
+              Value: !Ref BlobBucket
+            - Name: LANGFUSE_S3_MEDIA_UPLOAD_ENABLED
+              Value: 'true'
+            - Name: LANGFUSE_S3_BATCH_EXPORT_ENABLED
+              Value: 'true'
+            - Name: LANGFUSE_S3_BATCH_EXPORT_BUCKET
+              Value: !Ref EventBucket
+            - Name: LANGFUSE_S3_BATCH_EXPORT_PREFIX
+              Value: 'exports/'
+            - Name: LANGFUSE_S3_BATCH_EXPORT_REGION
+              Value: !Ref AWS::Region
+            - Name: NEXTAUTH_URL
+              Value: !Sub 'https://${DomainName}'
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LangfuseWebLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: langfuse-web
+
+  LangfuseWebServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound from VPC for ECS Fargate Service
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+          Description: langfuse-web
+      Tags:
+        - Key: Name
+          Value: langfuse-web-sg
+
+  LangfuseWebService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ALBListener
+      - LangfuseWorkerService
+    Properties:
+      ServiceName: langfuse_web
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref LangfuseWebTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+            - !Ref PrivateSubnet3
+          SecurityGroups:
+            - !Ref LangfuseWebServiceSecurityGroup
+            - !Ref RedisClientSecurityGroup
+            - !Ref PostgreSQLClientSecurityGroup
+            - !Ref ClickhouseClientSecurityGroup
+      LoadBalancers:
+        - ContainerName: langfuse_web
+          ContainerPort: 3000
+          TargetGroupArn: !Ref ALBTargetGroup
+      Tags:
+        - Key: Name
+          Value: langfuse_web
+
+  # Auto Scaling for Web Service
+  WebServiceScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Sub 'service/${ECSCluster}/${LangfuseWebService.Name}'
+      RoleARN: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService'
+      ScalableDimension: 'ecs:service:DesiredCount'
+      ServiceNamespace: ecs
+
+  WebServiceScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WebServiceCPUScaling
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref WebServiceScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+
+  LoadBalancerUrl:
+    Description: Load Balancer DNS Name
+    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
+
+  AuroraClusterEndpoint:
+    Description: Aurora PostgreSQL Cluster Endpoint
+    Value: !GetAtt AuroraDBCluster.Endpoint.Address
+
+  RedisEndpoint:
+    Description: Redis Primary Endpoint
+    Value: !GetAtt RedisReplicationGroup.PrimaryEndPoint.Address
+
+  ClickhouseUrl:
+    Description: Clickhouse HTTP URL
+    Value: !Sub 'http://clickhouse.${PrivateDnsNamespace}:8123'
+
+  BlobBucketName:
+    Description: S3 Blob Bucket Name
+    Value: !Ref BlobBucket
+
+  EventBucketName:
+    Description: S3 Event Bucket Name
+    Value: !Ref EventBucket
