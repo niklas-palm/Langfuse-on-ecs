@@ -36,20 +36,20 @@
     "ParameterValue": "langfuse.local"
   },
   {
+    "ParameterKey": "LangfuseNextAuthSecret",
+    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
+  },
+  {
+    "ParameterKey": "LangfuseSalt",
+    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
+  },
+  {
+    "ParameterKey": "LangfuseEncryptionKey",
+    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
+  },
+  {
     "ParameterKey": "LangfuseWebNodeEnv",
     "ParameterValue": "production"
-  },
-  {
-    "ParameterKey": "LangfuseWebNextAuthSecret",
-    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
-  },
-  {
-    "ParameterKey": "LangfuseWebSalt",
-    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
-  },
-  {
-    "ParameterKey": "LangfuseWebEncryptionKey",
-    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
   },
   {
     "ParameterKey": "LangfuseWebHostname",
@@ -78,14 +78,6 @@
   {
     "ParameterKey": "LangfuseWorkerNodeEnv",
     "ParameterValue": "production"
-  },
-  {
-    "ParameterKey": "LangfuseWorkerSalt",
-    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
-  },
-  {
-    "ParameterKey": "LangfuseWorkerEncryptionKey",
-    "ParameterValue": "REPLACE_WITH_OUTPUT_FROM_MAKE_GENERATE_SECRETS"
   },
   {
     "ParameterKey": "LangfuseWorkerTelemetryEnabled",
