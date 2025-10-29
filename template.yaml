@@ -50,25 +50,26 @@ Parameters:
     Default: "langfuse.local"
     Description: Private DNS namespace for service discovery
 
+  # Langfuse Shared Secrets (used by both web and worker)
+  LangfuseNextAuthSecret:
+    Type: String
+    NoEcho: true
+    Description: "NextAuth secret for session validation (generate with: openssl rand -base64 32)"
+
+  LangfuseSalt:
+    Type: String
+    NoEcho: true
+    Description: "Salt for API key hashing - MUST be same across all containers (generate with: openssl rand -base64 32)"
+
+  LangfuseEncryptionKey:
+    Type: String
+    NoEcho: true
+    Description: "Encryption key for sensitive data - MUST be same across all containers (generate with: openssl rand -hex 32)"
+
   # Langfuse Web Environment Variables
   LangfuseWebNodeEnv:
     Type: String
     Default: "production"
-
-  LangfuseWebNextAuthSecret:
-    Type: String
-    NoEcho: true
-    Description: "NextAuth secret (generate with: openssl rand -base64 32)"
-
-  LangfuseWebSalt:
-    Type: String
-    NoEcho: true
-    Description: "Salt for encryption (generate with: openssl rand -base64 32)"
-
-  LangfuseWebEncryptionKey:
-    Type: String
-    NoEcho: true
-    Description: "Encryption key (generate with: openssl rand -hex 32)"
 
   LangfuseWebHostname:
     Type: String
@@ -103,16 +104,6 @@ Parameters:
   LangfuseWorkerNodeEnv:
     Type: String
     Default: "production"
-
-  LangfuseWorkerSalt:
-    Type: String
-    NoEcho: true
-    Description: "Worker salt (generate with: openssl rand -base64 32)"
-
-  LangfuseWorkerEncryptionKey:
-    Type: String
-    NoEcho: true
-    Description: "Worker encryption key (generate with: openssl rand -hex 32)"
 
   LangfuseWorkerTelemetryEnabled:
     Type: String
@@ -1033,9 +1024,9 @@ Resources:
             - Name: NODE_ENV
               Value: !Ref LangfuseWorkerNodeEnv
             - Name: SALT
-              Value: !Ref LangfuseWorkerSalt
+              Value: !Ref LangfuseSalt
             - Name: ENCRYPTION_KEY
-              Value: !Ref LangfuseWorkerEncryptionKey
+              Value: !Ref LangfuseEncryptionKey
             - Name: TELEMETRY_ENABLED
               Value: !Ref LangfuseWorkerTelemetryEnabled
             - Name: LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES
@@ -1202,11 +1193,11 @@ Resources:
             - Name: NODE_ENV
               Value: !Ref LangfuseWebNodeEnv
             - Name: NEXTAUTH_SECRET
-              Value: !Ref LangfuseWebNextAuthSecret
+              Value: !Ref LangfuseNextAuthSecret
             - Name: SALT
-              Value: !Ref LangfuseWebSalt
+              Value: !Ref LangfuseSalt
             - Name: ENCRYPTION_KEY
-              Value: !Ref LangfuseWebEncryptionKey
+              Value: !Ref LangfuseEncryptionKey
             - Name: HOSTNAME
               Value: !Ref LangfuseWebHostname
             - Name: LANGFUSE_S3_MEDIA_DOWNLOAD_URL_EXPIRY_SECONDS
