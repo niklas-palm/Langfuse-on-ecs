@@ -73,7 +73,7 @@
   },
   {
     "ParameterKey": "LangfuseWebAuthDisableSignup",
-    "ParameterValue": "true"
+    "ParameterValue": "false"
   },
   {
     "ParameterKey": "LangfuseWorkerNodeEnv",
